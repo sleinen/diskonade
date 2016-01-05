@@ -352,9 +352,9 @@ sub suggest_ticket_mail($$) {
     }
 
     if ((exists $disk->{reported_uncorrectable}
-	 and $disk->{reported_uncorrectable} > 1)
+	 and $disk->{reported_uncorrectable} > 0)
 	or (exists $disk->{reallocated_sector_ct}
-	    and $disk->{reallocated_sector_ct})) {
+	    and $disk->{reallocated_sector_ct} > 0)) {
 	printf STDOUT ("\nSMART summary:\n\n");
 	printf STDOUT ("  reported_uncorrectable: %d\n", $disk->{reported_uncorrectable})
 	    if exists $disk->{reported_uncorrectable};
