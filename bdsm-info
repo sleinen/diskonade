@@ -176,7 +176,9 @@ sub print_disk($ ) {
     printf STDOUT ("  target:  %s\n", $disk->{target});
     printf STDOUT ("  symlink: %s\n", $disk->{symlink})
 	if exists $disk->{symlink};
-    printf STDOUT ("  reallocated_sector_ct: %d\n", $disk->{reallocated_sector_ct})
+    printf STDOUT ("  reported_uncorrectable: %d\n", $disk->{reported_uncorrectable})
+	if exists $disk->{reallocated_sector_ct};
+    printf STDOUT ("  reallocated_sector_ct:  %d\n", $disk->{reallocated_sector_ct})
 	if exists $disk->{reallocated_sector_ct};
     if (exists $disk->{errors}) {
 	printf STDOUT ("\n");
@@ -235,8 +237,8 @@ sub collect_disk_information_using_smartctl($ ) {
     my ($disk) = @_;
     my $dev = '/dev/'.$disk->{device};
     return undef unless -e $dev;
-    open PIPE, "sudo smartctl -a ".$dev."|"
-	or die "Cannot run smartctl -a $dev: $!";
+    open PIPE, "sudo smartctl -x ".$dev."|"
+	or die "Cannot run smartctl -x $dev: $!";
     while (<PIPE>) {
 	my (@m);
 	if (@m = /^\s+Device Model:\s+(.*)$/) {
@@ -246,6 +248,8 @@ sub collect_disk_information_using_smartctl($ ) {
 	} elsif (@m = /^LU WWN Device Id:\s+(.*)$/) {
 	    ($disk->{wwn}) = @m;
 	    $disk->{wwn} =~ s/ //g; # drop the blanks
+	} elsif (@m = /^  4  0x008  4\s+(\d+)  Number of Reported Uncorrectable Errors$/) {
+	    ($disk->{reported_uncorrectable}) = @m;
 	} elsif (@m = /^  5 Reallocated_Sector_Ct\s+0x0033\s+(\d+)\s+(\d+)\s+(\d+)\s+Pre-fail\s+Always\s+-\s+(\d+)$/) {
 	    ($disk->{reallocated_sector_ct}) = $m[3];
 	} else {
@@ -254,7 +258,7 @@ sub collect_disk_information_using_smartctl($ ) {
 	}
     }
     close PIPE
-	or die "Error from sudo smartctl -a $dev: $!";
+	or warn "Error from sudo smartctl -x $dev: $!";
 }
 
 sub check_udev_rules($$) {
@@ -318,6 +322,10 @@ sub suggest_ticket_mail($$) {
     printf STDOUT ("Server serial number:  %s\n", $chassis_serial);
     printf STDOUT ("Disk serial number:    %s\n", $disk->{serno});
     printf STDOUT ("Known as:              /dev/%s\n", $disk->{symlink});
+
+    printf STDOUT ("WWN:                   %s\n", $disk->{wwn});
+    printf STDOUT ("Target:                %s\n", $disk->{target});
+
     if (exists $disk->{mountpoints}) {
 	foreach my $mountpoint (sort keys %{$disk->{mountpoints}}) {
 	    printf STDOUT ("Mounted on:            %s (%s)\n",
@@ -342,6 +350,18 @@ sub suggest_ticket_mail($$) {
 	    }
 	}
     }
+
+    if ((exists $disk->{reported_uncorrectable}
+	 and $disk->{reported_uncorrectable} > 1)
+	or (exists $disk->{reallocated_sector_ct}
+	    and $disk->{reallocated_sector_ct})) {
+	printf STDOUT ("\nSMART summary:\n\n");
+	printf STDOUT ("  reported_uncorrectable: %d\n", $disk->{reported_uncorrectable})
+	    if exists $disk->{reported_uncorrectable};
+	printf STDOUT ("  reallocated_sector_ct:  %d\n", $disk->{reallocated_sector_ct})
+	    if exists $disk->{reallocated_sector_ct};
+    }
+
     printf STDOUT "------------------------------ SNIP ------------------------------\n\n";
 }
 
