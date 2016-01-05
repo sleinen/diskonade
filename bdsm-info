@@ -1,0 +1,345 @@
+#!/usr/bin/perl -w
+##
+## Extract useful information about disks.
+##
+## In particular, broken disks.
+
+use strict;
+use warnings;
+
+my $debug = 0;
+
+## This can be disabled, e.g. for testing, because it is slow.
+##
+my $collect_chassis_serial_number = 1;
+
+my $ticket_email_address = 'engines-support@switch.ch';
+
+my $ticket_base_url = 'https://ticket.switch.ch/rt/';
+
+sub trawl_logs_for_disk_errors() {
+    my $errors = {};
+
+    grep_logs_for_disk_errors($errors, 'gzip -dc /var/log/kern.log.3.gz |');
+    grep_logs_for_disk_errors($errors, 'gzip -dc /var/log/kern.log.2.gz |');
+    grep_logs_for_disk_errors($errors, '/var/log/kern.log.1');
+    grep_logs_for_disk_errors($errors, '/var/log/kern.log');
+    return $errors;
+}
+
+sub grep_logs_for_disk_errors($$) {
+
+    ##
+    ## We're interested in lines like this in /var/log/kern.log etc.:
+    ##
+    ## Jan  3 13:55:38 zhdk0020 kernel: [15356268.140899] mpt2sas0: log_info(0x31080000): originator(PL), code(0x08), sub_code(0x0000)
+    ## Jan  3 13:55:38 zhdk0020 kernel: [15356268.140943] sd 0:0:2:0: [sde]
+    ## Jan  3 13:55:38 zhdk0020 kernel: [15356268.140947] Result: hostbyte=DID_OK driverbyte=DRIVER_SENSE
+    ## Jan  3 13:55:38 zhdk0020 kernel: [15356268.140948] sd 0:0:2:0: [sde]
+    ## Jan  3 13:55:38 zhdk0020 kernel: [15356268.140950] Sense Key : Medium Error [current]
+    ## Jan  3 13:55:38 zhdk0020 kernel: [15356268.140955] Info fld=0x793209f8
+    ## Jan  3 13:55:38 zhdk0020 kernel: [15356268.140956] sd 0:0:2:0: [sde]
+    ## Jan  3 13:55:38 zhdk0020 kernel: [15356268.140958] Add. Sense: Unrecovered read error
+    ## Jan  3 13:55:38 zhdk0020 kernel: [15356268.140960] sd 0:0:2:0: [sde] CDB:
+    ## Jan  3 13:55:38 zhdk0020 kernel: [15356268.140961] Read(16): 88 00 00 00 00 00 79 32 09 f8 00 00 01 00 00 00
+    ## Jan  3 13:55:38 zhdk0020 kernel: [15356268.140968] end_request: critical medium error, dev sde, sector 2033322488
+    ##
+    my(@m);
+    my($datetime, $host, $tstamp, $rest);
+    my($log_info, $code, $sub_code);
+    my($target, $devname);
+    my($devname_b, $badseq, $info_fld);
+    my($errors, $file) = @_;
+
+    sub note_disk_error($$$$$ ) {
+	my ($errors, $host, $devname, $target, $error) = @_;
+	my $disk = exists($errors->{devname})
+	    ? $errors->{devname}
+	: ($errors->{devname} = { 'device' => $devname,
+				      'target' => $target,
+				      'errors' => [],
+	   });
+	$disk->{host} = $host unless exists $disk->{host};
+	push @{$disk->{errors}}, $error;
+	return $disk;
+    }
+
+    open (FILE, $file)
+	or die "Cannot open log file $file: $!";
+    my @log_buffer = ();
+    while (<FILE>) {
+	##
+	## Parse and strip line header, e.g.
+	##
+	## "Jan  3 13:55:38 zhdk0020 kernel: [15356268.140899] "
+	##
+	if (@m
+	    = /^([A-Z][a-z][a-z] [ 0-9]\d \d\d:\d\d:\d\d) (.*) kernel: \[(\d+\.\d+)\] (.*)$/) {
+	    ($datetime, $host, $tstamp, $rest) = @m;
+	} else {
+	    die "Malformed line:\n$_";
+	}
+
+	if (@m = ($rest =~ /^mpt2sas0: log_info\(0x([0-9a-f]+)\): originator\(PL\), code\(0x([0-9a-f]+)\), sub_code\(0x([0-9a-f]+)\)/)) {
+	    ($log_info, $code, $sub_code) = @m;
+	    push @log_buffer, $_;
+	} elsif (@m = ($rest =~ /^sd ([0-9:]+): \[(sd.*)\]/)) {
+	    ($target, $devname) = @m;
+	    # warn "Target $target Devname $devname\n";
+	    push @log_buffer, $_;
+	} elsif ($rest =~ /Sense Key : Medium Error \[current\]/) {
+	    push @log_buffer, $_;
+	} elsif ($rest =~ /Result: hostbyte=DID_OK driverbyte=DRIVER_SENSE$/) {
+	    push @log_buffer, $_;
+	} elsif ($rest =~ /Add\. Sense: Unrecovered read error/) {
+	    push @log_buffer, $_;
+	} elsif (@m = ($rest =~ /^Info fld=0x([0-9a-f]+)$/)) {
+	    ($info_fld) = @m;
+	    push @log_buffer, $_;
+	} elsif (@m = ($rest =~ /^Read\((\d+)\): ([0-9a-f ]+)$/)) {
+	    push @log_buffer, $_;
+	} elsif ($rest =~ /Add\. Sense: Unrecovered read error/) {
+	    push @log_buffer, $_;
+	} elsif (@m = ($rest =~ /^end_request: critical medium error, dev (.*), sector (\d+)$/)) {
+	    ($devname_b, $badseq) = @m;
+	    die unless defined($devname);
+	    die unless $devname eq $devname_b;
+	    push @log_buffer, $_;
+	    my $disk = note_disk_error($errors, $host, $devname, $target,
+				       {
+					   'datetime' => $datetime,
+					       'badseq' => $badseq,
+				       });
+	    $disk->{kern_log} = [@log_buffer];
+	    @log_buffer = ();
+	} elsif ($rest =~ /^IN=/) {
+	} elsif ($rest =~ /^ sd.:/) {
+	} elsif ($rest =~ /^XFS \(sd..\): /) {
+	} else {
+	    ##
+	    ## The idea is to make these disappear by understanding all log lines...
+	    ##
+	    warn "UNGROKKABLE KERNEL LOG LINE: $_";
+	}
+	1;
+    }
+    close FILE or die "Error closing log file $file: $!";
+    return undef unless $errors;
+    return $errors;
+}
+
+sub print_error($$) {
+    my ($disk, $error) = @_;
+    my $prefix = '    ';
+    print $prefix;
+    printf ("%s ", $error->{datetime});
+    if (exists $error->{badseq}) {
+	printf STDOUT ("critical medium error, sector: %d\n",
+		       $error->{badseq});
+    } else {
+	printf STDOUT ("error:");
+	foreach my $key (sort keys %{$error}) {
+	    printf STDOUT (" %s: %s", $key, $error->{$key});
+	}
+	printf STDOUT ("\n");
+    }
+}
+
+sub print_disk($ ) {
+    my ($disk) = @_;
+    printf STDOUT ("Disk /dev/%s:\n", $disk->{device});
+    printf STDOUT ("  WWN:     %s\n", $disk->{wwn});
+    printf STDOUT ("  serial:  %s\n", $disk->{serno});
+    printf STDOUT ("  target:  %s\n", $disk->{target});
+    printf STDOUT ("  symlink: %s\n", $disk->{symlink})
+	if exists $disk->{symlink};
+    printf STDOUT ("  reallocated_sector_ct: %d\n", $disk->{reallocated_sector_ct})
+	if exists $disk->{reallocated_sector_ct};
+    if (exists $disk->{errors}) {
+	printf STDOUT ("\n");
+	printf STDOUT ("  Errors:\n");
+	foreach my $error (@{$disk->{errors}}) {
+	    print_error ($disk, $error);
+	}
+    }
+}
+
+sub collect_disk_mount_information($ ) {
+    my ($disk) = @_;
+    my $dev = '/dev/'.$disk->{device};
+    my (@m, %mountpoint);
+    open MTAB, "/etc/mtab"
+	or die "Cannot open /etc/mtab: $!";
+    while (<MTAB>) {
+	unless (@m = /^((\/[^ ]+)\d+) (\/\S+) (\S+) (\S+)/) {
+	    next;
+	}
+	my ($path, $base, $mountpoint, $fstype, $flags) = @m;
+	next unless $2 eq $dev;
+	$mountpoint{$mountpoint} = { 'fstype' => $fstype,
+					 'flags' => $flags,
+					 'path' => $path,
+	};
+    }
+    close MTAB or die "Error closing /etc/mtab: $!";
+    $disk->{mountpoints} = \%mountpoint;
+}
+
+sub collect_disk_information_using_hdparm($ ) {
+    my ($disk) = @_;
+    my $dev = '/dev/'.$disk->{device};
+    open PIPE, "sudo hdparm -I ".$dev."|"
+	or die "Cannot run hdparm -I $dev: $!";
+    while (<PIPE>) {
+	my (@m);
+	if (@m = /^\s+Model Number:\s+(.*)$/) {
+	    ($disk->{model}) = @m;
+	} elsif (@m = /^\s+Serial Number:\s+(.*)$/) {
+	    ($disk->{serno}) = @m;
+	} elsif (@m = /^Logical Unit WWN Device Identifier:\s+(.*)$/) {
+	    ($disk->{wwn}) = @m;
+	} else {
+	    warn "Ignoring hdparm output: $_"
+		if $debug;
+	}
+    }
+    close PIPE
+	or die "Error from sudo hdparm -I $dev: $!";
+}
+
+sub collect_disk_information_using_smartctl($ ) {
+    my ($disk) = @_;
+    my $dev = '/dev/'.$disk->{device};
+    open PIPE, "sudo smartctl -a ".$dev."|"
+	or die "Cannot run smartctl -a $dev: $!";
+    while (<PIPE>) {
+	my (@m);
+	if (@m = /^\s+Device Model:\s+(.*)$/) {
+	    ($disk->{model}) = @m;
+	} elsif (@m = /^Serial Number:\s+(.*)$/) {
+	    ($disk->{serno}) = @m;
+	} elsif (@m = /^LU WWN Device Id:\s+(.*)$/) {
+	    ($disk->{wwn}) = @m;
+	    $disk->{wwn} =~ s/ //g; # drop the blanks
+	} elsif (@m = /^  5 Reallocated_Sector_Ct\s+0x0033\s+(\d+)\s+(\d+)\s+(\d+)\s+Pre-fail\s+Always\s+-\s+(\d+)$/) {
+	    ($disk->{reallocated_sector_ct}) = $m[3];
+	} else {
+	    warn "Ignoring smartctl output: $_"
+		if $debug;
+	}
+    }
+    close PIPE
+	or die "Error from sudo smartctl -a $dev: $!";
+}
+
+sub check_udev_rules($$) {
+    my ($disk, $rules_file) = @_;
+    my (@m);
+    open FILE, "$rules_file"
+	or die "Cannot open udev rules $rules_file: $!";
+    while (<FILE>) {
+	if (@m = /ENV\{ID_WWN_WITH_EXTENSION\}=="0x([0-9a-f]+)"/) {
+	    my ($this_wwn) = @m;
+	    if ($disk->{wwn} eq $this_wwn) {
+		if (@m = /,\s*SYMLINK\+="([^%]+)(?:%n)?"/) {
+		    ($disk->{symlink}) = @m;
+		}
+	    } else {
+	    }
+	} else {
+	    # warn "HUH?: $_";
+	}
+    }
+    close FILE
+	or die "Error closing udev rules file $rules_file: $!";
+}
+
+sub get_chassis_serial_number() {
+    my (@m);
+    my ($chassis_serial);
+    open PIPE, "sudo ipmitool fru|"
+	or die "Cannot run ipmitool fru: $!";
+    while (<PIPE>) {
+	if (@m = /^\s*Chassis Serial\s*: (.*)$/) {
+	    ($chassis_serial) = @m;
+	}
+	warn "IPMITOOL FRU: $_"
+	    if $debug;
+    }
+    close PIPE
+	or die "Error from ipmitool fru: $!";
+    return $chassis_serial;
+}
+
+sub ticket_url($ ) {
+    my ($no) = @_;
+    return $ticket_base_url."Ticket/Display.html?id="
+	.(defined($no) ? $no : 'XXX');
+}
+
+sub first_error_datettime($ ) {
+    my ($disk) = @_;
+    return $disk->{errors}[0]->{datetime};
+}
+
+sub suggest_ticket_mail($$) {
+    my ($disk, $chassis_serial) = @_;
+    print STDOUT "Create a ticket by sending a mail along these lines:\n\n";
+    printf STDOUT "------------------------------ SNIP ------------------------------\n";
+    printf STDOUT ("To: %s\n", $ticket_email_address);
+    printf STDOUT ("Subject: %s %s (%s) disk errors\n\n",
+		   $disk->{host}, $disk->{serno}, $disk->{device});
+    printf STDOUT ("Server serial number:  %s\n", $chassis_serial);
+    printf STDOUT ("Disk serial number:    %s\n", $disk->{serno});
+    printf STDOUT ("Known as:              /dev/%s\n", $disk->{symlink});
+    if (exists $disk->{mountpoints}) {
+	foreach my $mountpoint (sort keys %{$disk->{mountpoints}}) {
+	    printf STDOUT ("Mounted on:            %s (%s)\n",
+			   $mountpoint,
+			   $disk->{mountpoints}->{$mountpoint}->{path});
+	}
+    }
+
+    if (exists $disk->{kern_log}) {
+	printf STDOUT ("\n");
+	printf ("From /var/log/kern.log:\n\n");
+	foreach my $line (@{$disk->{kern_log}}) {
+	    print ("  ", $line);
+	}
+    }
+    printf STDOUT "------------------------------ SNIP ------------------------------\n\n";
+}
+
+sub suggest_trouble_log_entry($ ) {
+    my ($disk) = @_;
+    my ($ticket_no);
+
+    $ticket_no = 'XXX';
+    printf STDOUT ("Now surf to\n\n%s\n\n and write something like:\n\n",
+		   "https://dokuwiki.toolbox.switch.ch/switchcloud/trouble_log?do=edit&rev=");
+    printf STDOUT ("===== %s %s %s (%s) disk errors ======\n\n[[%s|#%s]]\n\n",
+		   first_error_datettime($disk),
+		   $disk->{host},
+		   $disk->{serno},
+		   $disk->{device},
+		   ticket_url($ticket_no), $ticket_no);
+}
+
+my $errors = trawl_logs_for_disk_errors();
+foreach my $disk (sort keys %{$errors}) {
+    my $disk_errors = $errors->{$disk};
+    my ($chassis_serial);
+    #collect_disk_information_using_hdparm($disk_errors);
+    collect_disk_information_using_smartctl($disk_errors);
+    collect_disk_mount_information($disk_errors);
+    check_udev_rules($disk_errors, '/etc/udev/rules.d/60-persistent-block.rules');
+    if ($collect_chassis_serial_number) {
+	$chassis_serial = get_chassis_serial_number();
+    } else {
+	$chassis_serial = "<GUESS>";
+    }
+    # print_disk($disk_errors);
+    suggest_ticket_mail($disk_errors, $chassis_serial);
+    suggest_trouble_log_entry($disk_errors);
+}
+1;
