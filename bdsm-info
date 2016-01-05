@@ -258,6 +258,12 @@ sub collect_disk_information_using_smartctl($ ) {
 	}
     }
     close PIPE
+	##
+	## TODO:
+	##
+	## smartctl -x likes to terminate with status code 64.
+	## Find out what that means, and how to handle it gracefully.
+	##
 	or warn "Error from sudo smartctl -x $dev: $!";
 }
 
