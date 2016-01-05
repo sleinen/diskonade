@@ -13,7 +13,7 @@ my $debug = 0;
 ##
 my $collect_chassis_serial_number = 1;
 
-my $ticket_email_address = 'engines-support@switch.ch';
+my $ticket_email_address = '<SUPER-SECRET-TICKET-SYSTEM-ADDRESS@EXAMPLE.COM>';
 
 my $ticket_base_url = 'https://ticket.switch.ch/rt/';
 
@@ -45,10 +45,10 @@ sub grep_logs_for_disk_errors($$) {
     ## Jan  3 13:55:38 zhdk0020 kernel: [15356268.140968] end_request: critical medium error, dev sde, sector 2033322488
     ##
     my(@m);
-    my($datetime, $host, $tstamp, $rest);
-    my($log_info, $code, $sub_code);
+    my($disk, $datetime, $host, $tstamp, $rest);
+    my($sas_index, $log_info, $code, $sub_code);
     my($target, $devname);
-    my($devname_b, $badseq, $info_fld);
+    my($devname_b, $error_type, $badseq, $index, $badlb, $info_fld);
     my($errors, $file) = @_;
 
     sub note_disk_error($$$$$ ) {
@@ -62,6 +62,13 @@ sub grep_logs_for_disk_errors($$) {
 	$disk->{host} = $host unless exists $disk->{host};
 	push @{$disk->{errors}}, $error;
 	return $disk;
+    }
+
+    sub save_log_buffer($$) {
+	my ($disk, $lines) = @_;
+	$disk->{kern_log} = [] unless exists $disk->{kern_log};
+	push @{$disk->{kern_log}}, @{$lines};
+	@{$lines} = ();
     }
 
     open (FILE, $file)
@@ -80,8 +87,8 @@ sub grep_logs_for_disk_errors($$) {
 	    die "Malformed line:\n$_";
 	}
 
-	if (@m = ($rest =~ /^mpt2sas0: log_info\(0x([0-9a-f]+)\): originator\(PL\), code\(0x([0-9a-f]+)\), sub_code\(0x([0-9a-f]+)\)/)) {
-	    ($log_info, $code, $sub_code) = @m;
+	if (@m = ($rest =~ /^mpt2sas(\d+): log_info\(0x([0-9a-f]+)\): originator\(PL\), code\(0x([0-9a-f]+)\), sub_code\(0x([0-9a-f]+)\)/)) {
+	    ($sas_index, $log_info, $code, $sub_code) = @m;
 	    push @log_buffer, $_;
 	} elsif (@m = ($rest =~ /^sd ([0-9:]+): \[(sd.*)\]/)) {
 	    ($target, $devname) = @m;
@@ -89,7 +96,7 @@ sub grep_logs_for_disk_errors($$) {
 	    push @log_buffer, $_;
 	} elsif ($rest =~ /Sense Key : Medium Error \[current\]/) {
 	    push @log_buffer, $_;
-	} elsif ($rest =~ /Result: hostbyte=DID_OK driverbyte=DRIVER_SENSE$/) {
+	} elsif ($rest =~ /Result: hostbyte=(DID_OK|DID_SOFT_ERROR) driverbyte=(DRIVER_SENSE|DRIVER_OK)$/) {
 	    push @log_buffer, $_;
 	} elsif ($rest =~ /Add\. Sense: Unrecovered read error/) {
 	    push @log_buffer, $_;
@@ -100,18 +107,31 @@ sub grep_logs_for_disk_errors($$) {
 	    push @log_buffer, $_;
 	} elsif ($rest =~ /Add\. Sense: Unrecovered read error/) {
 	    push @log_buffer, $_;
-	} elsif (@m = ($rest =~ /^end_request: critical medium error, dev (.*), sector (\d+)$/)) {
-	    ($devname_b, $badseq) = @m;
+	} elsif (@m = ($rest =~ /Buffer I\/O error on device (sd[a-z]+)(\d*), logical block (\d+)/)) {
+	    ($devname_b, $index, $badlb) = @m;
 	    die unless defined($devname);
 	    die unless $devname eq $devname_b;
 	    push @log_buffer, $_;
-	    my $disk = note_disk_error($errors, $host, $devname, $target,
+	    $disk = note_disk_error($errors, $host, $devname, $target,
+				       {
+					   'index' => $index,
+					       'badlb' => $badlb,
+					       'sas_index' => $sas_index,
+				       });
+	    save_log_buffer($disk, \@log_buffer);
+	} elsif (@m = ($rest =~ /^end_request: (critical medium error|I\/O error), dev (.*), sector (\d+)$/)) {
+	    ($error_type, $devname_b, $badseq) = @m;
+	    die unless defined($devname);
+	    die unless $devname eq $devname_b;
+	    push @log_buffer, $_;
+	    $disk = note_disk_error($errors, $host, $devname, $target,
 				       {
 					   'datetime' => $datetime,
+					       'error_type' => $error_type,
 					       'badseq' => $badseq,
+					       'sas_index' => $sas_index,
 				       });
-	    $disk->{kern_log} = [@log_buffer];
-	    @log_buffer = ();
+	    save_log_buffer($disk, \@log_buffer);
 	} elsif ($rest =~ /^IN=/) {
 	} elsif ($rest =~ /^ sd.:/) {
 	} elsif ($rest =~ /^XFS \(sd..\): /) {
@@ -122,6 +142,9 @@ sub grep_logs_for_disk_errors($$) {
 	    warn "UNGROKKABLE KERNEL LOG LINE: $_";
 	}
 	1;
+    }
+    if (@log_buffer and defined $disk) {
+	save_log_buffer($disk, \@log_buffer);
     }
     close FILE or die "Error closing log file $file: $!";
     return undef unless $errors;
@@ -188,6 +211,7 @@ sub collect_disk_mount_information($ ) {
 sub collect_disk_information_using_hdparm($ ) {
     my ($disk) = @_;
     my $dev = '/dev/'.$disk->{device};
+    return undef unless -e $dev;
     open PIPE, "sudo hdparm -I ".$dev."|"
 	or die "Cannot run hdparm -I $dev: $!";
     while (<PIPE>) {
@@ -210,6 +234,7 @@ sub collect_disk_information_using_hdparm($ ) {
 sub collect_disk_information_using_smartctl($ ) {
     my ($disk) = @_;
     my $dev = '/dev/'.$disk->{device};
+    return undef unless -e $dev;
     open PIPE, "sudo smartctl -a ".$dev."|"
 	or die "Cannot run smartctl -a $dev: $!";
     while (<PIPE>) {
@@ -235,6 +260,7 @@ sub collect_disk_information_using_smartctl($ ) {
 sub check_udev_rules($$) {
     my ($disk, $rules_file) = @_;
     my (@m);
+    return undef unless exists $disk->{wwn};
     open FILE, "$rules_file"
 	or die "Cannot open udev rules $rules_file: $!";
     while (<FILE>) {
@@ -303,8 +329,17 @@ sub suggest_ticket_mail($$) {
     if (exists $disk->{kern_log}) {
 	printf STDOUT ("\n");
 	printf ("From /var/log/kern.log:\n\n");
-	foreach my $line (@{$disk->{kern_log}}) {
-	    print ("  ", $line);
+
+	my $line_limit = 30;
+	if ($#{$disk->{kern_log}} > $line_limit) {
+	    for (my $i = 0; $i < $line_limit; $i++) {
+		print STDOUT ("  ", $disk->{kern_log}->[$i]);
+	    }
+	    printf STDOUT ("...%d lines omitted\n", $#{$disk->{kern_log}} - $line_limit);
+	} else {
+	    foreach my $line (@{$disk->{kern_log}}) {
+		print STDOUT ("  ", $line);
+	    }
 	}
     }
     printf STDOUT "------------------------------ SNIP ------------------------------\n\n";
