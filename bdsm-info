@@ -32,6 +32,20 @@ sub grep_logs_for_disk_errors($$) {
     ##
     ## We're interested in lines like this in /var/log/kern.log etc.:
     ##
+    ## Dec 31 08:13:50 zhdk0030 kernel: [15074410.390807] mpt2sas1: log_info(0x31080000): originator(PL), code(0x08), sub_code(0x0000)
+    ## Dec 31 08:13:50 zhdk0030 kernel: [15074410.390831] sd 8:0:1:0: [sdh]
+    ## Dec 31 08:13:50 zhdk0030 kernel: [15074410.390853] Result: hostbyte=DID_OK driverbyte=DRIVER_SENSE
+    ## Dec 31 08:13:50 zhdk0030 kernel: [15074410.390855] sd 8:0:1:0: [sdh]
+    ## Dec 31 08:13:50 zhdk0030 kernel: [15074410.390857] Sense Key : Medium Error [current] [descriptor]
+    ## Dec 31 08:13:50 zhdk0030 kernel: [15074410.390860] Descriptor sense data with sense descriptors (in hex):
+    ## Dec 31 08:13:50 zhdk0030 kernel: [15074410.390861]         72 03 11 00 00 00 00 0c 00 0a 80 00 00 00 00 01
+    ## Dec 31 08:13:50 zhdk0030 kernel: [15074410.390881]         7a b7 b7 88
+    ## Dec 31 08:13:50 zhdk0030 kernel: [15074410.390883] sd 8:0:1:0: [sdh]
+    ## Dec 31 08:13:50 zhdk0030 kernel: [15074410.390886] Add. Sense: Unrecovered read error
+    ## Dec 31 08:13:50 zhdk0030 kernel: [15074410.390888] sd 8:0:1:0: [sdh] CDB:
+    ## Dec 31 08:13:50 zhdk0030 kernel: [15074410.390889] Read(16): 88 00 00 00 00 01 7a b7 b7 88 00 00 00 08 00 00
+    ## Dec 31 08:13:50 zhdk0030 kernel: [15074410.390896] end_request: critical medium error, dev sdh, sector 6353827720
+    ##
     ## Jan  3 13:55:38 zhdk0020 kernel: [15356268.140899] mpt2sas0: log_info(0x31080000): originator(PL), code(0x08), sub_code(0x0000)
     ## Jan  3 13:55:38 zhdk0020 kernel: [15356268.140943] sd 0:0:2:0: [sde]
     ## Jan  3 13:55:38 zhdk0020 kernel: [15356268.140947] Result: hostbyte=DID_OK driverbyte=DRIVER_SENSE
@@ -94,18 +108,27 @@ sub grep_logs_for_disk_errors($$) {
 	    ($target, $devname) = @m;
 	    # warn "Target $target Devname $devname\n";
 	    push @log_buffer, $_;
-	} elsif ($rest =~ /Sense Key : Medium Error \[current\]/) {
+	} elsif ($rest =~ /^Sense Key : Medium Error \[current\](?: \[descriptor\])?$/) {
 	    push @log_buffer, $_;
-	} elsif ($rest =~ /Result: hostbyte=(DID_OK|DID_SOFT_ERROR) driverbyte=(DRIVER_SENSE|DRIVER_OK)$/) {
+	} elsif ($rest =~ /^Result: hostbyte=(DID_OK|DID_SOFT_ERROR) driverbyte=(DRIVER_SENSE|DRIVER_OK)$/) {
 	    push @log_buffer, $_;
-	} elsif ($rest =~ /Add\. Sense: Unrecovered read error/) {
+	} elsif ($rest =~ /^Add\. Sense: Unrecovered read error$/) {
+	    push @log_buffer, $_;
+	} elsif ($rest =~ /^Descriptor sense data with sense descriptors \(in hex\):$/) {
+	    push @log_buffer, $_;
+	} elsif ($rest =~ /^        ([0-9a-f][0-9a-f] )+$/) {
+	    ##
+	    ## Lines with hex bytes and nothing else.
+	    ##
+	    ## We buffer them unconditionally.  It would be better to
+	    ## only do so when they are preceded by (each other or)
+	    ## specific lines.
+	    ##
 	    push @log_buffer, $_;
 	} elsif (@m = ($rest =~ /^Info fld=0x([0-9a-f]+)$/)) {
 	    ($info_fld) = @m;
 	    push @log_buffer, $_;
 	} elsif (@m = ($rest =~ /^Read\((\d+)\): ([0-9a-f ]+)$/)) {
-	    push @log_buffer, $_;
-	} elsif ($rest =~ /Add\. Sense: Unrecovered read error/) {
 	    push @log_buffer, $_;
 	} elsif (@m = ($rest =~ /Buffer I\/O error on device (sd[a-z]+)(\d*), logical block (\d+)/)) {
 	    ($devname_b, $index, $badlb) = @m;
