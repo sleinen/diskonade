@@ -20,6 +20,7 @@ my $ticket_base_url = 'https://ticket.switch.ch/rt/';
 sub trawl_logs_for_disk_errors() {
     my $errors = {};
 
+    grep_logs_for_disk_errors($errors, 'gzip -dc /var/log/kern.log.4.gz |');
     grep_logs_for_disk_errors($errors, 'gzip -dc /var/log/kern.log.3.gz |');
     grep_logs_for_disk_errors($errors, 'gzip -dc /var/log/kern.log.2.gz |');
     grep_logs_for_disk_errors($errors, '/var/log/kern.log.1');
