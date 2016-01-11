@@ -108,7 +108,7 @@ sub grep_logs_for_disk_errors($$) {
 	    ($target, $devname) = @m;
 	    # warn "Target $target Devname $devname\n";
 	    push @log_buffer, $_;
-	} elsif ($rest =~ /^Sense Key : Medium Error \[current\](?: \[descriptor\])?$/) {
+	} elsif ($rest =~ /^Sense Key : Medium Error \[current\](?: \[descriptor\])?\s*$/) {
 	    push @log_buffer, $_;
 	} elsif ($rest =~ /^Result: hostbyte=(DID_OK|DID_SOFT_ERROR) driverbyte=(DRIVER_SENSE|DRIVER_OK)$/) {
 	    push @log_buffer, $_;
