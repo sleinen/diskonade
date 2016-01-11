@@ -281,14 +281,43 @@ sub collect_disk_information_using_smartctl($ ) {
 		if $debug;
 	}
     }
-    close PIPE
-	##
-	## TODO:
-	##
-	## smartctl -x likes to terminate with status code 64.
-	## Find out what that means, and how to handle it gracefully.
-	##
-	or warn "Error from sudo smartctl -x $dev: $!";
+    if (! close PIPE) {
+	if ($! == 0) {
+	    my ($retcode, $signo) = ($? >> 8, $? & 127);
+	    ##
+	    ## From https://www.smartmontools.org/browser/trunk/smartmontools/smartctl.8.in:
+	    ##
+	    if ($retcode & (1 << 0)) {
+		warn "smartctl -x $dev: Command line did not parse.\n";
+	    }
+	    if ($retcode & (1 << 1)) {
+		warn "smartctl -x $dev: Could not open device.\n";
+	    }
+	    if ($retcode & (1 << 2)) {
+		warn "smartctl -x $dev: SMART error\n";
+	    }
+	    if ($retcode & (1 << 3)) {
+		$disk->{smart_disk_failing} = 1;
+	    }
+	    if ($retcode & (1 << 4)) {
+		$disk->{smart_prefail_below_threshold} = 1;
+	    }
+	    if ($retcode & (1 << 5)) {
+		$disk->{smart_ok_but_below_threshold} = 1;
+	    }
+	    if ($retcode & (1 << 6)) {
+		$disk->{smart_error_records_found} = 1;
+	    }
+	    if ($retcode & (1 << 7)) {
+		$disk->{smart_selftest_errors_found} = 1;
+	    }
+	    if ($signo != 0) {
+		warn "smartctl -x: signal $signo\n";
+	    }
+	} else {
+	    warn "Error from sudo smartctl -x $dev: $!";
+	}
+    }
 }
 
 sub check_udev_rules($$) {
@@ -386,6 +415,21 @@ sub suggest_ticket_mail($$) {
 	or (exists $disk->{reallocated_sector_ct}
 	    and $disk->{reallocated_sector_ct} > 0)) {
 	printf STDOUT ("\nSMART summary:\n\n");
+	if ($disk->{smart_disk_failing}) {
+	    printf STDOUT ("  disk failing\n");
+	}
+	if ($disk->{smart_prefail_below_threshold}) {
+	    printf STDOUT ("  prefail attribytes <= threshold\n");
+	}
+	if ($disk->{smart_ok_but_below_threshold}) {
+	    printf STDOUT ("  attributes <= threshold\n");
+	}
+	if ($disk->{smart_error_records_found}) {
+	    printf STDOUT ("  error records found\n");
+	}
+	if ($disk->{smart_selftest_errors_found}) {
+	    printf STDOUT ("  errors found in selftest\n");
+	}
 	printf STDOUT ("  reported_uncorrectable: %d\n", $disk->{reported_uncorrectable})
 	    if exists $disk->{reported_uncorrectable};
 	printf STDOUT ("  reallocated_sector_ct:  %d\n", $disk->{reallocated_sector_ct})
