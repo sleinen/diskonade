@@ -561,11 +561,8 @@ foreach my $disk (sort keys %{$errors}) {
     }
     collect_disk_mount_information($disk_errors);
     check_udev_rules($disk_errors, '/etc/udev/rules.d/60-persistent-block.rules');
-    if ($collect_chassis_serial_number) {
-	$chassis_serial = get_chassis_serial_number();
-    } else {
-	$chassis_serial = "<GUESS>";
-    }
+    $chassis_serial = get_chassis_serial_number()
+	if $collect_chassis_serial_number;
     # print_disk($disk_errors);
     suggest_ticket_mail($disk_errors, $chassis_serial);
     suggest_trouble_log_entry($disk_errors);
