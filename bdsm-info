@@ -96,7 +96,7 @@ sub grep_logs_for_disk_errors($$) {
 	## "Jan  3 13:55:38 zhdk0020 kernel: [15356268.140899] "
 	##
 	if (@m
-	    = /^([A-Z][a-z][a-z] [ 0-9]\d \d\d:\d\d:\d\d) (.*) kernel: \[(\d+\.\d+)\] (.*)$/) {
+	    = /^([A-Z][a-z][a-z] [ 0-9]\d \d\d:\d\d:\d\d) (.*) kernel: \[ *(\d+\.\d+)\] (.*)$/) {
 	    ($datetime, $host, $tstamp, $rest) = @m;
 	} else {
 	    die "Malformed line:\n$_";
