@@ -343,20 +343,49 @@ sub check_udev_rules($$) {
 	or die "Error closing udev rules file $rules_file: $!";
 }
 
+sub find_in_path($@) {
+    my ($cmd, $path) = @_;
+    $path = $ENV{'PATH'} unless defined $path;
+    foreach my $dir (split(':', $path)) {
+	my $full_pathname = $dir.'/'.$cmd;
+	return $full_pathname
+	    if -x $full_pathname;
+    }
+    return undef;
+}
+
 sub get_chassis_serial_number() {
     my (@m);
     my ($chassis_serial);
-    open PIPE, "sudo ipmitool fru|"
-	or die "Cannot run ipmitool fru: $!";
-    while (<PIPE>) {
-	if (@m = /^\s*Chassis Serial\s*: (.*)$/) {
-	    ($chassis_serial) = @m;
+    if (find_in_path ('ipmi-fru')) {
+	open PIPE, "sudo ipmi-fru|"
+	    or die "Cannot run ipmi-fru: $!";
+	while (<PIPE>) {
+	    if (@m = /^\s*FRU Chassis Serial Number: (.*)$/) {
+		($chassis_serial) = @m;
+	    }
+	    warn "IPMI-FRU: $_"
+		if $debug;
 	}
-	warn "IPMITOOL FRU: $_"
-	    if $debug;
+	close PIPE
+	    or die "Error from ipmi-fru: $!";
+    } elsif (find_in_path ('ipmitool')) {
+	open PIPE, "sudo ipmitool fru|"
+	    or die "Cannot run ipmitool fru: $!";
+	while (<PIPE>) {
+	    if (@m = /^\s*Chassis Serial\s*: (.*)$/) {
+		($chassis_serial) = @m;
+	    }
+	    warn "IPMITOOL FRU: $_"
+		if $debug;
+	}
+	close PIPE
+	    or die "Error from ipmitool fru: $!";
+    } else {
+	warn "Could not obtain chassis serial number.\n"
+	    ."Either ipmi-fru (from freeipmi) or ipmitool should be installed.\n";
+	return undef;
     }
-    close PIPE
-	or die "Error from ipmitool fru: $!";
     return $chassis_serial;
 }
 
@@ -378,7 +407,8 @@ sub suggest_ticket_mail($$) {
     printf STDOUT ("To: %s\n", $ticket_email_address);
     printf STDOUT ("Subject: %s %s (%s) disk errors\n\n",
 		   $disk->{host}, $disk->{serno}, $disk->{device});
-    printf STDOUT ("Server serial number:  %s\n", $chassis_serial);
+    printf STDOUT ("Server serial number:  %s\n",
+		   defined $chassis_serial ? $chassis_serial : '<UNKNOWN>');
     printf STDOUT ("Disk serial number:    %s\n", $disk->{serno});
     printf STDOUT ("Known as:              /dev/%s\n", $disk->{symlink});
 
