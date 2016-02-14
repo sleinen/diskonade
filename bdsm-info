@@ -17,6 +17,8 @@ my $ticket_email_address = '<SUPER-SECRET-TICKET-SYSTEM-ADDRESS@EXAMPLE.COM>';
 
 my $ticket_base_url = 'https://ticket.switch.ch/rt/';
 
+my $warn_about_unknown_kernel_log_entries = 0;
+
 sub trawl_logs_for_disk_errors() {
     my $errors = {};
 
@@ -163,7 +165,8 @@ sub grep_logs_for_disk_errors($$) {
 	    ##
 	    ## The idea is to make these disappear by understanding all log lines...
 	    ##
-	    warn "UNGROKKABLE KERNEL LOG LINE: $_";
+	    warn "UNGROKKABLE KERNEL LOG LINE: $_"
+		if $warn_about_unknown_kernel_log_entries;
 	}
 	1;
     }
