@@ -399,6 +399,15 @@ sub check_udev_rules($$) {
 	or die "Error closing udev rules file $rules_file: $!";
 }
 
+### find_in_path CMD [, PATH]
+###
+### Look for CMD in PATH, and return the full pathname if found.
+###
+### PATH should be a string containing a colon-separated list of
+### directories.  If CMD is found in any of the directories, the full
+### pathname of the first match will be returned.  Otherwise the
+### result will be undef(ined).
+###
 sub find_in_path($@) {
     my ($cmd, $path) = @_;
     $path = $ENV{'PATH'} unless defined $path;
@@ -544,8 +553,12 @@ my $errors = trawl_logs_for_disk_errors();
 foreach my $disk (sort keys %{$errors}) {
     my $disk_errors = $errors->{$disk};
     my ($chassis_serial);
-    #collect_disk_information_using_hdparm($disk_errors);
-    collect_disk_information_using_smartctl($disk_errors);
+    if (find_in_path ('smartctl')) {
+	collect_disk_information_using_smartctl($disk_errors);
+    } else {
+	warn "'smartctl' not found.  Please install smartmontools.\n";
+	collect_disk_information_using_hdparm($disk_errors);
+    }
     collect_disk_mount_information($disk_errors);
     check_udev_rules($disk_errors, '/etc/udev/rules.d/60-persistent-block.rules');
     if ($collect_chassis_serial_number) {
