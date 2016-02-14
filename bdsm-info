@@ -514,7 +514,7 @@ sub suggest_ticket_mail($$) {
 	    printf STDOUT ("  disk failing\n");
 	}
 	if ($disk->{smart_prefail_below_threshold}) {
-	    printf STDOUT ("  prefail attribytes <= threshold\n");
+	    printf STDOUT ("  prefail attributes <= threshold\n");
 	}
 	if ($disk->{smart_ok_but_below_threshold}) {
 	    printf STDOUT ("  attributes <= threshold\n");
