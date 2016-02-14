@@ -19,14 +19,67 @@ my $ticket_base_url = 'https://ticket.switch.ch/rt/';
 
 my $warn_about_unknown_kernel_log_entries = 0;
 
+## How many days in the past we consider relevant for log entries
+##
+my $days_back = 10;
+
+### relevant_historic_filenames BASENAME, DAYS_BACK
+###
+### Returns an ordered (by increasing last-modified time) list of
+### archived log files based on BASENAME, reaching DAYS_BACK days back
+### in time.
+###
+### For example, if BASENAME is /var/log/foo, and DAYS_BACK is 3, and
+### the current time is Sun Feb 14 16:23:31 CET 2016, and /var/log
+### contains the following files:
+###
+### : leinen@zhdk0019.zhdk.cloud[diskonade]; ls -l /var/log/foo*
+### -rw-r----- 1 syslog adm 827006 Feb 14 16:20 /var/log/foo
+### -rw-r----- 1 syslog adm  69559 Feb 14 06:48 /var/log/foo.1
+### -rw-r----- 1 syslog adm   5496 Feb 13 06:40 /var/log/foo.2.gz
+### -rw-r----- 1 syslog adm   5722 Feb 12 06:48 /var/log/foo.3.gz
+### -rw-r----- 1 syslog adm   5896 Feb 11 06:52 /var/log/foo.4.gz
+### -rw-r----- 1 syslog adm   5958 Feb 10 06:32 /var/log/foo.5.gz
+###
+### Then the function will return
+### ['/var/log/foo.3.gz', '/var/log/foo.2.gz', '/var/log/foo.1', '/var/log/foo']
+###
+### The files /var/log/foo.4.gz and older will be excluded, because
+### based on their last-modified times, they cannot contain any
+### entries less than DAYS_BACK days old.
+###
+sub relevant_historic_filenames($$) {
+    my ($basename, $days_back) = @_;
+    my %files_by_age = ();
+    foreach my $entry (<$basename*>) {
+	my $age = -M $entry;
+	next if $age > $days_back;
+	warn "overwriting same-age file"
+	    if exists $files_by_age{$age};
+	$files_by_age{$age} = $entry;
+    }
+    return map { $files_by_age{$_} } sort { $b <=> $a } keys %files_by_age;
+}
+
+### maybe_decompress FILENAME
+###
+### Return a string that can be used with open() to read the file even
+### when it is compressed, by turning it into a "pipe" with the
+### necessary decompression command if necessary.
+###
+sub maybe_decompress($ ) {
+    my ($filename) = @_;
+    return "gzip -dc $filename|" if $filename =~ /\.gz$/;
+    return "zcat $filename|" if $filename =~ /\.Z$/;
+    return $filename;
+}
+
 sub trawl_logs_for_disk_errors() {
     my $errors = {};
 
-    grep_logs_for_disk_errors($errors, 'gzip -dc /var/log/kern.log.4.gz |');
-    grep_logs_for_disk_errors($errors, 'gzip -dc /var/log/kern.log.3.gz |');
-    grep_logs_for_disk_errors($errors, 'gzip -dc /var/log/kern.log.2.gz |');
-    grep_logs_for_disk_errors($errors, '/var/log/kern.log.1');
-    grep_logs_for_disk_errors($errors, '/var/log/kern.log');
+    for my $logfile (relevant_historic_filenames('/var/log/kern.log', $days_back)) {
+	grep_logs_for_disk_errors($errors, maybe_decompress($logfile));
+    }
     return $errors;
 }
 
