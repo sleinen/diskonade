@@ -549,16 +549,21 @@ sub suggest_trouble_log_entry($ ) {
 		   ticket_url($ticket_no), $ticket_no);
 }
 
-my $errors = trawl_logs_for_disk_errors();
-foreach my $disk (sort keys %{$errors}) {
-    my $disk_errors = $errors->{$disk};
-    my ($chassis_serial);
+sub collect_disk_information($ ) {
+    my ($disk_errors) = @_;
     if (find_in_path ('smartctl')) {
 	collect_disk_information_using_smartctl($disk_errors);
     } else {
 	warn "'smartctl' not found.  Please install smartmontools.\n";
 	collect_disk_information_using_hdparm($disk_errors);
     }
+}
+
+my $errors = trawl_logs_for_disk_errors();
+foreach my $disk (sort keys %{$errors}) {
+    my $disk_errors = $errors->{$disk};
+    my ($chassis_serial);
+    collect_disk_information($disk_errors);
     collect_disk_mount_information($disk_errors);
     check_udev_rules($disk_errors, '/etc/udev/rules.d/60-persistent-block.rules');
     $chassis_serial = get_chassis_serial_number()
