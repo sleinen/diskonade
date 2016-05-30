@@ -14,3 +14,12 @@ opportunities to learn how to streamline our processes.  So far we
 have worked with Wiki pages to document our procedures, but the
 instructions have become unwieldy over time, and we need some
 automation.
+
+## Prerequisites
+
+The script expects a few tools to be installed.  On a Debian/Ubuntu
+system, the following packages should be there:
+
+* freeipmi
+* smartmontools
+* hdparm
