@@ -398,7 +398,7 @@ sub collect_disk_location_information_using_sas2ircu($ ) {
 	    # warn "Cannot parse line:\n$_\n";
 	}
     }
-    if (close PIPE) {
+    unless (close PIPE) {
 	warn "Error from sudo sas2ircu list: $!";
     }
     foreach my $idx (sort keys %controller) {
