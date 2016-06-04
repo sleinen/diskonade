@@ -380,8 +380,10 @@ sub collect_disk_location_information_using_sas2ircu($ ) {
     my ($disk) = @_;
     my %controller = ();
 
-    open PIPE, "sudo sas2ircu list|"
-	or die "Cannot run sas2ircu list: $!";
+    unless (open PIPE, "sudo sas2ircu list|") {
+	warn "Cannot run sas2ircu list: $!";
+	return undef;
+    }
     while (<PIPE>) {
 	my (@m);
 	if (@m = /^\s+(\d+)\s+(\S+)\s+([0-9a-f]+)h\s+([0-9a-f]+)h\s+([0-9a-f]+)h:([0-9a-f]+)h:([0-9a-f]+)h:([0-9a-f]+)h\s+([0-9a-f]+)h\s+([0-9a-f]+)h\s*$/) {
@@ -394,8 +396,9 @@ sub collect_disk_location_information_using_sas2ircu($ ) {
 	    # warn "Cannot parse line:\n$_\n";
 	}
     }
-    close PIPE
-	or die "Error from sudo sas2ircu list: $!";
+    if (close PIPE) {
+	warn "Error from sudo sas2ircu list: $!";
+    }
     foreach my $idx (sort keys %controller) {
 	my ($type);
 	my %attrval = ();
