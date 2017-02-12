@@ -6,6 +6,7 @@
 
 use strict;
 use warnings;
+use Sys::Hostname;
 
 my $debug = 0;
 
@@ -190,8 +191,11 @@ sub grep_logs_for_disk_errors($$) {
 	    push @log_buffer, $_;
 	} elsif (@m = ($rest =~ /Buffer I\/O error on device (sd[a-z]+)(\d*), logical block (\d+)/)) {
 	    ($devname_b, $index, $badlb) = @m;
-	    die unless defined($devname);
-	    die unless $devname eq $devname_b;
+	    if (defined($devname)) {
+		die "Expected device $devname, saw $devname_b" unless $devname eq $devname_b;
+	    } else {
+		$devname = $devname_b;
+	    }
 	    push @log_buffer, $_;
 	    $disk = note_disk_error($errors, $host, $devname, $target,
 				       {
@@ -202,8 +206,11 @@ sub grep_logs_for_disk_errors($$) {
 	    save_log_buffer($disk, \@log_buffer);
 	} elsif (@m = ($rest =~ /^end_request: (critical medium error|I\/O error), dev (.*), sector (\d+)$/)) {
 	    ($error_type, $devname_b, $badseq) = @m;
-	    die unless defined($devname);
-	    die unless $devname eq $devname_b;
+	    if (defined($devname)) {
+		die "Expected device $devname, saw $devname_b" unless $devname eq $devname_b;
+	    } else {
+		$devname = $devname_b;
+	    }
 	    push @log_buffer, $_;
 	    $disk = note_disk_error($errors, $host, $devname, $target,
 				       {
@@ -650,7 +657,33 @@ sub collect_disk_information($ ) {
     collect_disk_location_information_using_sas2ircu($disk_errors);
 }
 
-my $errors = trawl_logs_for_disk_errors();
+my $errors;
+
+my @devnames = @ARGV;
+if ($#devnames >= 0) {
+    foreach my $devname (@devnames) {
+	my $real_devname = $devname;
+	while (-l $real_devname) {
+	    $real_devname = readlink($real_devname)
+		or die "Cannot read symlink $real_devname: $!";
+	}
+	if (-e $real_devname) {
+	    if (! ($real_devname =~ m@^/dev/(.*)$@)) {
+		die "Real device name ($real_devname) should start with /dev";
+	    }
+	    $devname = $1;
+	    $errors->{devname} = {
+		'device' => $devname,
+		    'errors' => [],
+		    'host' => hostname,
+	    };
+	} else {
+	    die "Device $real_devname doesn't exist";
+	}
+    }
+} else {
+    $errors = trawl_logs_for_disk_errors();
+}
 foreach my $disk (sort keys %{$errors}) {
     my $disk_errors = $errors->{$disk};
     my ($chassis_serial);
