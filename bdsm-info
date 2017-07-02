@@ -160,10 +160,10 @@ sub grep_logs_for_disk_errors($$) {
 	    next;
 	}
 
-	if (@m = ($rest =~ /^mpt2sas(\d+): log_info\(0x([0-9a-f]+)\): originator\(PL\), code\(0x([0-9a-f]+)\), sub_code\(0x([0-9a-f]+)\)/)) {
+	if (@m = ($rest =~ /^mpt2sas(?:_cm)?(\d+): log_info\(0x([0-9a-f]+)\): originator\(PL\), code\(0x([0-9a-f]+)\), sub_code\(0x([0-9a-f]+)\)/)) {
 	    ($sas_index, $log_info, $code, $sub_code) = @m;
 	    push @log_buffer, $_;
-	} elsif (@m = ($rest =~ /^sd ([0-9:]+): \[(sd.*)\]/)) {
+	} elsif (@m = ($rest =~ /^sd ([0-9:]+): \[(sd.*)\](?: tag#\d+) (.*)/)) {
 	    ($target, $devname) = @m;
 	    # warn "Target $target Devname $devname\n";
 	    push @log_buffer, $_;
@@ -204,7 +204,7 @@ sub grep_logs_for_disk_errors($$) {
 					       'sas_index' => $sas_index,
 				       });
 	    save_log_buffer($disk, \@log_buffer);
-	} elsif (@m = ($rest =~ /^end_request: (critical medium error|I\/O error), dev (.*), sector (\d+)$/)) {
+	} elsif (@m = ($rest =~ /^(?:end|blk_update)_request: (critical medium error|I\/O error), dev (.*), sector (\d+)$/)) {
 	    ($error_type, $devname_b, $badseq) = @m;
 	    if (defined($devname)) {
 		die "Expected device $devname, saw $devname_b" unless $devname eq $devname_b;
