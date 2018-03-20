@@ -565,8 +565,8 @@ sub suggest_ticket_mail($$) {
     printf STDOUT ("Server serial number:  %s\n",
 		   defined $chassis_serial ? $chassis_serial : '<UNKNOWN>');
     printf STDOUT ("Disk serial number:    %s\n", $disk->{serno});
-    printf STDOUT ("Known as:              /dev/%s\n", $disk->{symlink});
-
+    printf STDOUT ("Known as:              /dev/%s\n", $disk->{symlink})
+	if exists $disk->{symlink};
     printf STDOUT ("WWN:                   %s\n", $disk->{wwn});
     printf STDOUT ("Target:                %s\n", $disk->{target});
     printf STDOUT ("Locator LED:           sudo sas2ircu %s locate %s:%s on/off\n",
@@ -577,12 +577,16 @@ sub suggest_ticket_mail($$) {
 	    and exists $disk->{enclosure_index}
 	    and exists $disk->{enclosure_slot});
 
-    if (exists $disk->{mountpoints}) {
+    if (%{$disk->{mountpoints}}) {
+        printf STDOUT  "OSD Type:              Filestore\n";
 	foreach my $mountpoint (sort keys %{$disk->{mountpoints}}) {
 	    printf STDOUT ("Mounted on:            %s (%s)\n",
 			   $mountpoint,
 			   $disk->{mountpoints}->{$mountpoint}->{path});
 	}
+    } else {
+        printf STDOUT  "OSD Type:              BlueStore\n";
+        printf STDOUT ("OSD Number:            %s\n", $disk->{osd});
     }
 
     if (exists $disk->{kern_log}) {
@@ -689,7 +693,11 @@ foreach my $disk (sort keys %{$errors}) {
     my ($chassis_serial);
     collect_disk_information($disk_errors);
     collect_disk_mount_information($disk_errors);
-    check_udev_rules($disk_errors, '/etc/udev/rules.d/60-persistent-block.rules');
+    if (%{$disk_errors->{mountpoints}}) {
+        check_udev_rules($disk_errors, '/etc/udev/rules.d/60-persistent-block.rules');
+    } else {
+        $disk_errors->{osd} = `ceph-bluestore-tool show-label --dev \$(lvs --noheadings --options lv_path,devices | grep /dev/$disk_errors->{device} | awk '{ print \$1 }') | grep whoami | awk -F '"' '{ print \$4 }'`;
+    }
     $chassis_serial = get_chassis_serial_number()
 	if $collect_chassis_serial_number;
     # print_disk($disk_errors);
