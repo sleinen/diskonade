@@ -641,7 +641,7 @@ sub suggest_trouble_log_entry($ ) {
 
     $ticket_no = 'XXX';
     printf STDOUT ("Now surf to\n\n%s\n\n and write something like:\n\n",
-		   "https://dokuwiki.toolbox.switch.ch/switchcloud/trouble_log?do=edit&rev=");
+		   "https://wiki.smap.switch.ch/topic/switchcloud/trouble_log?do=edit&rev=");
     printf STDOUT ("====== %s %s %s (%s) disk errors ======\n\n[[%s|#%s]]\n\n",
 		   first_error_datettime($disk),
 		   $disk->{host},
