@@ -391,6 +391,7 @@ sub collect_disk_location_information_using_sasNircu($$) {
     my %controller = ();
     my $sasNircu = "sas${n}ircu";
 
+    return undef unless find_in_path ($sasNircu);
     unless (open PIPE, "sudo $sasNircu list|") {
 	warn "Cannot run $sasNircu list: $!";
 	return undef;
