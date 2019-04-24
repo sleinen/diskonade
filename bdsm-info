@@ -396,6 +396,8 @@ sub collect_disk_location_information_using_sasNircu($$) {
 	return undef;
     }
     while (<PIPE>) {
+	warn "SAS${n}IRCU: $_"
+	    if $debug;
 	my (@m);
 	if (@m = /^\s+(\d+)\s+(\S+)\s+([0-9a-f]+)h\s+([0-9a-f]+)h\s+([0-9a-f]+)h:([0-9a-f]+)h:([0-9a-f]+)h:([0-9a-f]+)h\s+([0-9a-f]+)h\s+([0-9a-f]+)h\s*$/) {
 	    my ($idx, $type) = @m;
