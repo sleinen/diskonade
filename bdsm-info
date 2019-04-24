@@ -389,9 +389,10 @@ sub collect_disk_information_using_smartctl($ ) {
 sub collect_disk_location_information_using_sasNircu($$) {
     my ($n, $disk) = @_;
     my %controller = ();
+    my $sasNircu = "sas${n}ircu";
 
-    unless (open PIPE, "sudo sas$nircu list|") {
-	warn "Cannot run sas$nircu list: $!";
+    unless (open PIPE, "sudo $sasNircu list|") {
+	warn "Cannot run $sasNircu list: $!";
 	return undef;
     }
     while (<PIPE>) {
@@ -407,14 +408,14 @@ sub collect_disk_location_information_using_sasNircu($$) {
 	}
     }
     unless (close PIPE) {
-	warn "Error from sudo sas$nircu list: $!";
+	warn "Error from sudo $sasNircu list: $!";
     }
     foreach my $idx (sort keys %controller) {
 	my ($type);
 	my %attrval = ();
 	$type = $controller{$idx}->{type};
-	open PIPE, "sudo sas$nircu $idx display|"
-	    or die "Cannot run sas$nircu $idx display: $!";
+	open PIPE, "sudo $sasNircu $idx display|"
+	    or die "Cannot run $sasNircu $idx display: $!";
 	while (<PIPE>) {
 	    my (@m);
 	    # Enclosure #                             : 1
@@ -451,7 +452,7 @@ sub collect_disk_location_information_using_sasNircu($$) {
 	    }
 	}
 	close PIPE
-	    or warn "Error from sudo sas$nircu $idx display: $!";
+	    or warn "Error from sudo $sasNircu $idx display: $!";
     }
     foreach my $index (sort keys %controller) {
 	my $controller = $controller{$index};
