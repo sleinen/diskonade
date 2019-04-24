@@ -385,6 +385,89 @@ sub collect_disk_information_using_smartctl($ ) {
     }
 }
 
+
+sub collect_disk_location_information_using_sas3ircu($ ) {
+    my ($disk) = @_;
+    my %controller = ();
+
+    unless (open PIPE, "sudo sas3ircu list|") {
+	warn "Cannot run sas3ircu list: $!";
+	return undef;
+    }
+    while (<PIPE>) {
+	my (@m);
+	if (@m = /^\s+(\d+)\s+(\S+)\s+([0-9a-f]+)h\s+([0-9a-f]+)h\s+([0-9a-f]+)h:([0-9a-f]+)h:([0-9a-f]+)h:([0-9a-f]+)h\s+([0-9a-f]+)h\s+([0-9a-f]+)h\s*$/) {
+	    my ($idx, $type) = @m;
+	    $controller{$idx} = {
+		index => $idx,
+		type => $type,
+	    };
+	} else {
+	    # warn "Cannot parse line:\n$_\n";
+	}
+    }
+    unless (close PIPE) {
+	warn "Error from sudo sas3ircu list: $!";
+    }
+    foreach my $idx (sort keys %controller) {
+	my ($type);
+	my %attrval = ();
+	$type = $controller{$idx}->{type};
+	open PIPE, "sudo sas3ircu $idx display|"
+	    or die "Cannot run sas3ircu $idx display: $!";
+	while (<PIPE>) {
+	    my (@m);
+	    # Enclosure #                             : 1
+	    # Slot #                                  : 0
+	    # SAS Address                             : 4433221-1-0000-0000
+	    # State                                   : Ready (RDY)
+	    # Size (in MB)/(in sectors)               : 3815447/7814037167
+	    # Manufacturer                            : ATA
+	    # Model Number                            : WDC WD4000F9YZ-0
+	    # Firmware Revision                       : 1A01
+	    # Serial No                               : WDWCC131695593
+	    # GUID                                    : 50014ee2b478ab80
+	    # Protocol                                : SATA
+	    # Drive Type                              : SATA_HDD
+	    if (@m = /^  (Enclosure #|Slot #|SAS Address|State|Size \(in MB\)\/\(in sectors\)|Manufacturer|Model Number|Firmware Revision|Serial No|GUID|Protocol|Drive Type)\s*: (.*)$/) {
+		my ($attr, $val) = @m;
+		$attrval{$attr} = $val;
+	    } elsif (/^$/ or /^----/) {
+		if (exists $attrval{'Enclosure #'}
+		    and exists $attrval{'Slot #'}) {
+		    my ($enc, $slot);
+		    $enc = $attrval{'Enclosure #'};
+		    $slot = $attrval{'Slot #'};
+		    # $controller{$idx}->{disk} = {}
+		    # unless exists $controller{$idx}->{disk};
+		    my %attrcopy = %attrval;
+		    $controller{$idx}->{disk}->{$enc,$slot} = \%attrcopy;
+		} else {
+		    # warn "Missing Enclosure/Slot #";
+		}
+		%attrval = ();
+	    } else {
+		# warn "Cannot parse line:\n$_\n";
+	    }
+	}
+	close PIPE
+	    or warn "Error from sudo sas3ircu $idx display: $!";
+    }
+    foreach my $index (sort keys %controller) {
+	my $controller = $controller{$index};
+	foreach my $encslot (sort keys %{$controller->{disk}}) {
+	    my ($enc, $slot) = split($;,$encslot);
+	    my $d = $controller->{disk}->{$encslot};
+	    if ($d->{GUID} eq $disk->{wwn}) {
+		$disk->{controller_index} = $index;
+		$disk->{enclosure_index} = $enc;
+		$disk->{enclosure_slot} = $slot;
+	    }
+	}
+    }
+    1;
+}
+
 sub collect_disk_location_information_using_sas2ircu($ ) {
     my ($disk) = @_;
     my %controller = ();
@@ -464,6 +547,7 @@ sub collect_disk_location_information_using_sas2ircu($ ) {
 	    }
 	}
     }
+    1;
 }
 
 sub check_udev_rules($$) {
@@ -658,7 +742,8 @@ sub collect_disk_information($ ) {
 	warn "'smartctl' not found.  Please install smartmontools.\n";
 	collect_disk_information_using_hdparm($disk_errors);
     }
-    collect_disk_location_information_using_sas2ircu($disk_errors);
+    collect_disk_location_information_using_sas3ircu($disk_errors)
+	or collect_disk_location_information_using_sas2ircu($disk_errors);
 }
 
 my $errors;

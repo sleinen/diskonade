@@ -24,6 +24,7 @@ system, the following packages should be there:
 * smartmontools
 * hdparm
 
-In addition, the script tries to use the "sas2ircu" command to obtain
+In addition, the script tries to use the "sas2ircu" (for LSI SAS2008
+HBAs) or "sas3ircu" (for Broadcom SAS3008 HBAs) command to obtain
 physical location information about the broken disk.  This program is
 specific to LSI disk controllers and can be obtained from the vendor.
