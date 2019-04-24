@@ -458,19 +458,22 @@ sub collect_disk_location_information_using_sasNircu($$) {
 	close PIPE
 	    or warn "Error from sudo $sasNircu $idx display: $!";
     }
+    my $found_disk = 0;
     foreach my $index (sort keys %controller) {
 	my $controller = $controller{$index};
 	foreach my $encslot (sort keys %{$controller->{disk}}) {
 	    my ($enc, $slot) = split($;,$encslot);
 	    my $d = $controller->{disk}->{$encslot};
 	    if ($d->{GUID} eq $disk->{wwn}) {
+		$found_disk = 1;
+		$disk->{sasNircu} = $sasNircu;
 		$disk->{controller_index} = $index;
 		$disk->{enclosure_index} = $enc;
 		$disk->{enclosure_slot} = $slot;
 	    }
 	}
     }
-    1;
+    $found_disk;
 }
 
 sub check_udev_rules($$) {
@@ -566,7 +569,8 @@ sub suggest_ticket_mail($$) {
 	if exists $disk->{symlink};
     printf STDOUT ("WWN:                   %s\n", $disk->{wwn});
     printf STDOUT ("Target:                %s\n", $disk->{target});
-    printf STDOUT ("Locator LED:           sudo sas2ircu %s locate %s:%s on/off\n",
+    printf STDOUT ("Locator LED:           sudo %s %s locate %s:%s on/off\n",
+		   $disk->{sasNircu},
 		   $disk->{controller_index},
 		   $disk->{enclosure_index},
 		   $disk->{enclosure_slot})
