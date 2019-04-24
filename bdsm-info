@@ -513,35 +513,25 @@ sub find_in_path($@) {
 }
 
 sub get_chassis_serial_number() {
-    my (@m);
     my ($chassis_serial);
-    if (find_in_path ('ipmi-fru')) {
-	open PIPE, "sudo ipmi-fru|"
-	    or die "Cannot run ipmi-fru: $!";
+    if (find_in_path ('dmidecode')) {
+	open PIPE, "sudo dmidecode -s chassis-serial-number|"
+	    or die "Cannot run dmidecode: $!";
 	while (<PIPE>) {
-	    if (@m = /^\s*FRU Chassis Serial Number: (.*)$/) {
-		($chassis_serial) = @m;
+	    chomp $_;
+	    if (defined $chassis_serial) {
+		warn "Extra line in dmidecode output: $_";
+	    } else {
+		$chassis_serial = $_;
 	    }
-	    warn "IPMI-FRU: $_"
+	    warn "DMIDECODE: $_"
 		if $debug;
 	}
 	close PIPE
-	    or die "Error from ipmi-fru: $!";
-    } elsif (find_in_path ('ipmitool')) {
-	open PIPE, "sudo ipmitool fru|"
-	    or die "Cannot run ipmitool fru: $!";
-	while (<PIPE>) {
-	    if (@m = /^\s*Chassis Serial\s*: (.*)$/) {
-		($chassis_serial) = @m;
-	    }
-	    warn "IPMITOOL FRU: $_"
-		if $debug;
-	}
-	close PIPE
-	    or die "Error from ipmitool fru: $!";
+	    or die "Error from dmidecode: $!";
     } else {
 	warn "Could not obtain chassis serial number.\n"
-	    ."Either ipmi-fru (from freeipmi) or ipmitool should be installed.\n";
+	    ."The dmidecode tool should be installed.\n";
 	return undef;
     }
     return $chassis_serial;
