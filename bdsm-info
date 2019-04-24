@@ -410,7 +410,8 @@ sub collect_disk_location_information_using_sasNircu($$) {
 	}
     }
     unless (close PIPE) {
-	warn "Error from sudo $sasNircu list: $!";
+	warn "Error from sudo $sasNircu list";
+	return undef;
     }
     foreach my $idx (sort keys %controller) {
 	my ($type);
