@@ -20,7 +20,7 @@ automation.
 The script expects a few tools to be installed.  On a Debian/Ubuntu
 system, the following packages should be there:
 
-* freeipmi
+* dmidecode
 * smartmontools
 * hdparm
 
