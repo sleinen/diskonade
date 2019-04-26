@@ -24,6 +24,12 @@ my $warn_about_unknown_kernel_log_entries = 0;
 ##
 my $days_back = 10;
 
+## Useful SMART vendor-specific attributes
+##
+my %smart_vsa = (  5 => 'Reallocated_Sector_Ct',
+		 196 => 'Reallocated_Event_Count',
+		 197 => 'Current_Pending_Sector');
+
 ### relevant_historic_filenames BASENAME, DAYS_BACK
 ###
 ### Returns an ordered (by increasing last-modified time) list of
@@ -269,10 +275,14 @@ sub print_disk($ ) {
 	if exists $disk->{target};
     printf STDOUT ("  symlink: %s\n", $disk->{symlink})
 	if exists $disk->{symlink};
-    printf STDOUT ("  reported_uncorrectable: %d\n", $disk->{reported_uncorrectable})
-	if exists $disk->{reallocated_sector_ct};
-    printf STDOUT ("  reallocated_sector_ct:  %d\n", $disk->{reallocated_sector_ct})
-	if exists $disk->{reallocated_sector_ct};
+    foreach my $smart_stat (sort {$a <=> $b} keys %smart_vsa) {
+	printf STDOUT ("  %3d %32s %5d\n",
+		       $smart_stat,
+		       $smart_vsa{$smart_stat}.':',
+		       $disk->{smart_vsa}->{$smart_stat})
+	    if exists $disk->{smart_vsa}
+	       and exists $disk->{smart_vsa}->{$smart_stat};
+    }
     if (exists $disk->{errors}) {
 	printf STDOUT ("\n");
 	printf STDOUT ("  Errors:\n");
@@ -329,6 +339,7 @@ sub collect_disk_information_using_hdparm($ ) {
 sub collect_disk_information_using_smartctl($ ) {
     my ($disk) = @_;
     my $dev = '/dev/'.$disk->{device};
+    my $vsa_pattern = '('.join('|', sort {$a <=> $b} keys %smart_vsa).')';
     return undef unless -e $dev;
     open PIPE, "sudo smartctl -x ".$dev."|"
 	or die "Cannot run smartctl -x $dev: $!";
@@ -341,10 +352,12 @@ sub collect_disk_information_using_smartctl($ ) {
 	} elsif (@m = /^LU WWN Device Id:\s+(.*)$/) {
 	    ($disk->{wwn}) = @m;
 	    $disk->{wwn} =~ s/ //g; # drop the blanks
-	} elsif (@m = /^  4  0x008  4\s+(\d+)  Number of Reported Uncorrectable Errors$/) {
+	} elsif (@m = /^(?:\s*4|0x04)  0x008  4\s+(\d+)(?:  ---)?  Number of Reported Uncorrectable Errors$/) {
 	    ($disk->{reported_uncorrectable}) = @m;
-	} elsif (@m = /^  5 Reallocated_Sector_Ct\s+0x0033\s+(\d+)\s+(\d+)\s+(\d+)\s+Pre-fail\s+Always\s+-\s+(\d+)$/) {
-	    ($disk->{reallocated_sector_ct}) = $m[3];
+	} elsif (@m = /^\s*$vsa_pattern (\S+)\s+(?:0x....|[-P][-O][-S][-R][-C][-K])\s+(\d+)\s+(\d+)\s+(\d+)(?:\s+Pre-fail\s+Always)?\s+-\s+(\d+)$/) {
+	    my $attr = lc $m[0];
+	    $disk->{smart_vsa} = {} unless exists $disk->{smart_vsa};
+	    $disk->{smart_vsa}->{$attr} = $m[5];
 	} else {
 	    warn "Ignoring smartctl output: $_"
 		if $debug;
@@ -619,8 +632,9 @@ sub suggest_ticket_mail($$) {
 
     if ((exists $disk->{reported_uncorrectable}
 	 and $disk->{reported_uncorrectable} > 0)
-	or (exists $disk->{reallocated_sector_ct}
-	    and $disk->{reallocated_sector_ct} > 0)) {
+	or (exists $disk->{smart_vsa}
+	    and exists $disk->{smart_vsa}->{5}
+	    and $disk->{smart_vsa}->{5} > 0)) {
 	printf STDOUT ("\nSMART summary:\n\n");
 	if ($disk->{smart_disk_failing}) {
 	    printf STDOUT ("  disk failing\n");
@@ -637,10 +651,16 @@ sub suggest_ticket_mail($$) {
 	if ($disk->{smart_selftest_errors_found}) {
 	    printf STDOUT ("  errors found in selftest\n");
 	}
-	printf STDOUT ("  reported_uncorrectable: %d\n", $disk->{reported_uncorrectable})
-	    if exists $disk->{reported_uncorrectable};
-	printf STDOUT ("  reallocated_sector_ct:  %d\n", $disk->{reallocated_sector_ct})
-	    if exists $disk->{reallocated_sector_ct};
+	if (exists $disk->{smart_vsa}) {
+	    printf STDOUT ("  vendor-specific attributes:\n");
+	    foreach my $smart_stat (sort {$a <=> $b} keys %smart_vsa) {
+		printf STDOUT ("  %3d %32s %5d\n",
+			       $smart_stat,
+			       $smart_vsa{$smart_stat}.':',
+			       $disk->{smart_vsa}->{$smart_stat})
+		    if exists $disk->{smart_vsa}->{$smart_stat};
+	    }
+	}
     }
 
     printf STDOUT "------------------------------ SNIP ------------------------------\n\n";
