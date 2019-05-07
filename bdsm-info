@@ -30,6 +30,8 @@ my %smart_vsa = (  5 => 'Reallocated_Sector_Ct',
 		 196 => 'Reallocated_Event_Count',
 		 197 => 'Current_Pending_Sector');
 
+my $smartstore = '/var/lib/smartmontools';
+
 ### relevant_historic_filenames BASENAME, DAYS_BACK
 ###
 ### Returns an ordered (by increasing last-modified time) list of
@@ -332,6 +334,42 @@ sub collect_disk_information_using_hdparm($ ) {
 	or die "Error from sudo hdparm -I $dev: $!";
 }
 
+sub collect_smart_hist($ ) {
+    my ($disk) = @_;
+    my $smartpath = $disk->{model};
+    $smartpath =~ s/ /_/g;
+    $smartpath .= '-'.$disk->{serno};
+    my $smarthistfile = $smartstore.'/attrlog.'.$smartpath.'.ata.csv';
+    if (open SMARTHIST, $smarthistfile) {
+	$disk->{smarthist} = {'hist' => {}};
+	my ($first_datetime, $last_datetime);
+
+	my %last = ();
+	while (<SMARTHIST>) {
+	    my @fields = split(/;(?:\s+|$)/);
+	    my %attr = ();
+	    my $datetime = shift @fields;
+	    $first_datetime = $datetime unless defined $first_datetime;
+	    $last_datetime = $datetime;
+	    map {
+		my ($key, $foo, $value) = split(/;/, $_);
+		if (defined $value
+		    and exists $smart_vsa{$key}
+		    and (!exists($last{$key}) or $value ne $last{$key})) {
+		    $attr{$key} = $last{$key} = $value;
+		}
+	    } @fields;
+	    $disk->{smarthist}->{hist}->{$datetime} = \%attr;
+	}
+	$disk->{smarthist}->{start} = $first_datetime;
+	$disk->{smarthist}->{end} = $last_datetime;
+	close SMARTHIST
+	    or warn "Error closing $smarthistfile: $!";
+    } else {
+	warn "Could not open $smarthistfile: $!";
+    }
+}
+
 sub collect_disk_information_using_smartctl($ ) {
     my ($disk) = @_;
     my $dev = '/dev/'.$disk->{device};
@@ -396,8 +434,10 @@ sub collect_disk_information_using_smartctl($ ) {
 	    warn "Error from sudo smartctl -x $dev: $!";
 	}
     }
+    if (exists $disk->{model} and exists $disk->{serno}) {
+	collect_smart_hist($disk);
+    }
 }
-
 
 sub collect_disk_location_information_using_sasNircu($$) {
     my ($n, $disk) = @_;
@@ -649,6 +689,23 @@ sub suggest_ticket_mail($$) {
 			       $smart_vsa{$smart_stat}.':',
 			       $disk->{smart_vsa}->{$smart_stat})
 		    if exists $disk->{smart_vsa}->{$smart_stat};
+	    }
+	}
+    }
+
+    if (exists $disk->{smarthist}) {
+	my $smarthist = $disk->{smarthist};
+	printf STDOUT ("\nSMART history (%s - %s):\n\n",
+		       $smarthist->{start}, $smarthist->{end});
+	foreach my $datetime (sort keys %{$smarthist->{hist}}) {
+	    my $attrs = $smarthist->{hist}->{$datetime};
+	    for my $attr ((197)) {
+		if (exists $attrs->{$attr}) {
+		    printf STDOUT ("  %s %5d %s\n",
+				   $datetime,
+				   $attrs->{$attr},
+				   $smart_vsa{$attr});
+		}
 	    }
 	}
     }
