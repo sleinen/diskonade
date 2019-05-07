@@ -341,7 +341,7 @@ sub collect_disk_information_using_smartctl($ ) {
 	or die "Cannot run smartctl -x $dev: $!";
     while (<PIPE>) {
 	my (@m);
-	if (@m = /^\s+Device Model:\s+(.*)$/) {
+	if (@m = /^\s*Device Model:\s+(.*)$/) {
 	    ($disk->{model}) = @m;
 	} elsif (@m = /^Serial Number:\s+(.*)$/) {
 	    ($disk->{serno}) = @m;
