@@ -356,6 +356,12 @@ sub collect_smart_hist($ ) {
 		if (defined $value
 		    and exists $smart_vsa{$key}
 		    and (!exists($last{$key}) or $value ne $last{$key})) {
+		    if (!exists $disk->{errors} or !(@{$disk->{errors}})) {
+			$disk->{errors} = [{
+				'datetime' => $datetime,
+				$smart_vsa{$key} => $value,
+			    }];
+		    }
 		    $attr{$key} = $last{$key} = $value;
 		}
 	    } @fields;
