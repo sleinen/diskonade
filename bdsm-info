@@ -621,7 +621,8 @@ sub suggest_ticket_mail($$) {
     printf STDOUT ("Known as:              /dev/%s\n", $disk->{symlink})
 	if exists $disk->{symlink};
     printf STDOUT ("WWN:                   %s\n", $disk->{wwn});
-    printf STDOUT ("Target:                %s\n", $disk->{target});
+    printf STDOUT ("Target:                %s\n", $disk->{target})
+	if exists $disk->{target};
     printf STDOUT ("Locator LED:           sudo %s %s locate %s:%s on/off\n",
 		   $disk->{sasNircu},
 		   $disk->{controller_index},
