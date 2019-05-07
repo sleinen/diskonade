@@ -267,10 +267,14 @@ sub print_error($$) {
 
 sub print_disk($ ) {
     my ($disk) = @_;
-    printf STDOUT ("Disk /dev/%s:\n", $disk->{device});
-    printf STDOUT ("  WWN:     %s\n", $disk->{wwn});
-    printf STDOUT ("  serial:  %s\n", $disk->{serno});
-    printf STDOUT ("  target:  %s\n", $disk->{target});
+    printf STDOUT ("Disk /dev/%s:\n",
+		   exists $disk->{device} ? $disk->{device} : '???');
+    printf STDOUT ("  WWN:     %s\n", $disk->{wwn})
+	if exists $disk->{wwn};
+    printf STDOUT ("  serial:  %s\n", $disk->{serno})
+	if exists $disk->{serno};
+    printf STDOUT ("  target:  %s\n", $disk->{target})
+	if exists $disk->{target};
     printf STDOUT ("  symlink: %s\n", $disk->{symlink})
 	if exists $disk->{symlink};
     foreach my $smart_stat (sort {$a <=> $b} keys %smart_vsa) {
@@ -620,13 +624,17 @@ sub suggest_ticket_mail($$) {
     printf STDOUT "------------------------------ SNIP ------------------------------\n";
     printf STDOUT ("To: %s\n", $ticket_email_address);
     printf STDOUT ("Subject: %s %s (%s) disk errors\n\n",
-		   $disk->{host}, $disk->{serno}, $disk->{device});
+		   exists $disk->{host} ? $disk->{host} : '<UNKNOWN HOST>',
+		   exists $disk->{serno} ? $disk->{serno} : '<UNKNOWN SERIAL>',
+		   exists $disk->{device} ? $disk->{device} : '<UNKNOWN DEV>');
     printf STDOUT ("Server serial number:  %s\n",
 		   defined $chassis_serial ? $chassis_serial : '<UNKNOWN>');
-    printf STDOUT ("Disk serial number:    %s\n", $disk->{serno});
+    printf STDOUT ("Disk serial number:    %s\n", $disk->{serno})
+	if exists $disk->{serno};
     printf STDOUT ("Known as:              /dev/%s\n", $disk->{symlink})
 	if exists $disk->{symlink};
-    printf STDOUT ("WWN:                   %s\n", $disk->{wwn});
+    printf STDOUT ("WWN:                   %s\n", $disk->{wwn})
+	if exists $disk->{wwn};
     printf STDOUT ("Target:                %s\n", $disk->{target})
 	if exists $disk->{target};
     printf STDOUT ("Locator LED:           sudo %s %s locate %s:%s on/off\n",
@@ -634,7 +642,8 @@ sub suggest_ticket_mail($$) {
 		   $disk->{controller_index},
 		   $disk->{enclosure_index},
 		   $disk->{enclosure_slot})
-	if (exists $disk->{controller_index}
+	if (exists $disk->{sasNircu}
+	    and exists $disk->{controller_index}
 	    and exists $disk->{enclosure_index}
 	    and exists $disk->{enclosure_slot});
 
