@@ -338,12 +338,27 @@ sub collect_disk_information_using_hdparm($ ) {
 	or die "Error from sudo hdparm -I $dev: $!";
 }
 
-sub collect_smart_hist($ ) {
+sub find_smart_attrlog($ ) {
     my ($disk) = @_;
     my $smartpath = $disk->{model};
-    $smartpath =~ s/ /_/g;
-    $smartpath .= '-'.$disk->{serno};
-    my $smarthistfile = $smartstore.'/attrlog.'.$smartpath.'.ata.csv';
+    my $serno = $disk->{serno};
+    $smartpath =~ s/[- ]/_/g;
+    my $smarthistfile = $smartstore.'/attrlog.'.$smartpath.'-'.$serno.'.ata.csv';
+    return $smarthistfile if -f $smarthistfile;
+    $serno =~ s/[- ]/_/g;
+    $smarthistfile = $smartstore.'/attrlog.'.$smartpath.'-'.$serno.'.ata.csv';
+    return $smarthistfile if -f $smarthistfile;
+    return undef;
+}
+
+sub collect_smart_hist($ ) {
+    my ($disk) = @_;
+    my $smarthistfile = find_smart_attrlog($disk);
+    if (! defined $smarthistfile) {
+	warn "Could not find attrlog file for serno "
+	    .$disk->{serno}."/model ".$disk->{model}."\n";
+	return undef;
+    }
     if (open SMARTHIST, $smarthistfile) {
 	$disk->{smarthist} = {'hist' => {}};
 	my ($first_datetime, $last_datetime);
