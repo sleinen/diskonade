@@ -340,14 +340,18 @@ sub collect_disk_information_using_hdparm($ ) {
 
 sub find_smart_attrlog($ ) {
     my ($disk) = @_;
-    my $smartpath = $disk->{model};
-    my $serno = $disk->{serno};
-    $smartpath =~ s/[- ]/_/g;
-    my $smarthistfile = $smartstore.'/attrlog.'.$smartpath.'-'.$serno.'.ata.csv';
-    return $smarthistfile if -f $smarthistfile;
-    $serno =~ s/[- ]/_/g;
-    $smarthistfile = $smartstore.'/attrlog.'.$smartpath.'-'.$serno.'.ata.csv';
-    return $smarthistfile if -f $smarthistfile;
+    foreach my $model_sep (qw(- _)) {
+	foreach my $serno_sep (qw(- _)) {
+	    foreach my $proto (qw(ata scsi)) {
+		my $smartpath = $disk->{model};
+		my $serno = $disk->{serno};
+		$serno =~ s/[- ]/$serno_sep/g;
+		$smartpath =~ s/[- ]/$model_sep/g;
+		my $smarthistfile = $smartstore.'/attrlog.'.$smartpath.'-'.$serno.'.'.$proto.'.csv';
+		return $smarthistfile if -f $smarthistfile;
+	    }
+	}
+    }
     return undef;
 }
 
@@ -404,12 +408,17 @@ sub collect_disk_information_using_smartctl($ ) {
 	or die "Cannot run smartctl -x $dev: $!";
     while (<PIPE>) {
 	my (@m);
-	if (@m = /^\s*Device Model:\s+(.*)$/) {
+	if (@m = /^\s*Device Model:\s+(.*)$/i) {
 	    ($disk->{model}) = @m;
-	} elsif (@m = /^Serial Number:\s+(.*)$/) {
+	} elsif (@m = /^Vendor:\s+(.*)$/i) {
+	    ($disk->{vendor}) = @m;
+	} elsif (@m = /^Product:\s+(.*)$/i) {
+	    ($disk->{product}) = @m;
+	} elsif (@m = /^Serial Number:\s+(.*)$/i) {
 	    ($disk->{serno}) = @m;
-	} elsif (@m = /^LU WWN Device Id:\s+(.*)$/) {
+	} elsif (@m = /^(?:Logical Unit id|LU WWN Device Id):\s+(.*)$/) {
 	    ($disk->{wwn}) = @m;
+	    $disk->{wwn} =~ s/^0x//; # drop leading "0x"
 	    $disk->{wwn} =~ s/ //g; # drop the blanks
 	} elsif (@m = /^(?:\s*4|0x04)  0x008  4\s+(\d+)(?:  ---)?  Number of Reported Uncorrectable Errors$/) {
 	    ($disk->{reported_uncorrectable}) = @m;
@@ -422,6 +431,9 @@ sub collect_disk_information_using_smartctl($ ) {
 		if $debug;
 	}
     }
+    $disk->{model} = $disk->{vendor}.' '.$disk->{product}
+        if !exists $disk->{model}
+	    and exists $disk->{vendor} and exists $disk->{product};
     if (! close PIPE) {
 	if ($! == 0) {
 	    my ($retcode, $signo) = ($? >> 8, $? & 127);
