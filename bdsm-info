@@ -7,6 +7,7 @@
 use strict;
 use warnings;
 use Sys::Hostname;
+use Scalar::Util qw(looks_like_number);
 
 my $debug = 0;
 
@@ -28,7 +29,16 @@ my $days_back = 10;
 ##
 my %smart_vsa = (  5 => 'Reallocated_Sector_Ct',
 		 196 => 'Reallocated_Event_Count',
-		 197 => 'Current_Pending_Sector');
+		 197 => 'Current_Pending_Sector',
+		   'read-corr-algorithm-invocations' => 'Read-Correct Algorithm Invocations',
+		   'read-corr-by-ecc-fast' => 'Read Corrections by ECC (Fast)',
+		   'read-corr-by-retry' => 'Read Corrections by Retry',
+		   'read-total-unc-errors' => 'Read Total Uncorrected Errors',
+		   'write-corr-by-retry' => 'Write Corrections by Retry',
+		   'write-total-unc-errors' => 'Write Total Uncorrected Errors',
+		   'verify-corr-by-retry' => 'Verify Corrections by Retry',
+		   'verify-total-unc-errors' => 'Verify Total Uncorrected Errors',
+);
 
 my $smartstore = '/var/lib/smartmontools';
 
@@ -376,6 +386,7 @@ sub collect_smart_hist($ ) {
 	    $last_datetime = $datetime;
 	    map {
 		my ($key, $foo, $value) = split(/;/, $_);
+		$value = $foo unless defined $value;
 		if (defined $value
 		    and exists $smart_vsa{$key}
 		    and (!exists($last{$key}) or $value ne $last{$key})) {
@@ -402,7 +413,8 @@ sub collect_smart_hist($ ) {
 sub collect_disk_information_using_smartctl($ ) {
     my ($disk) = @_;
     my $dev = '/dev/'.$disk->{device};
-    my $vsa_pattern = '('.join('|', sort {$a <=> $b} keys %smart_vsa).')';
+    my $vsa_pattern = '('.join('|', sort {(looks_like_number($a) and looks_like_number($b))
+					      ? $a <=> $b : $a cmp $b} keys %smart_vsa).')';
     return undef unless -e $dev;
     open PIPE, "sudo smartctl -x ".$dev."|"
 	or die "Cannot run smartctl -x $dev: $!";
@@ -742,7 +754,9 @@ sub suggest_ticket_mail($$) {
 		       $smarthist->{start}, $smarthist->{end});
 	foreach my $datetime (sort keys %{$smarthist->{hist}}) {
 	    my $attrs = $smarthist->{hist}->{$datetime};
-	    for my $attr ((197)) {
+	    for my $attr (qw(197 read-corr-by-retry read-total-unc-errors
+			     write-corr-by-retry write-total-unc-errors
+			     verify-corr-by-retry verify-total-unc-errors)) {
 		if (exists $attrs->{$attr}) {
 		    printf STDOUT ("  %s %5d %s\n",
 				   $datetime,
